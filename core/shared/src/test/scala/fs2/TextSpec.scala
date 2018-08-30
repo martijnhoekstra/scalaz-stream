@@ -12,20 +12,23 @@ class TextSpec extends Fs2Spec {
       def utf8Bytes(s: String): Chunk[Byte] = Chunk.bytes(s.getBytes("UTF-8"))
       def utf8String(bs: Chunk[Byte]): String = new String(bs.toArray, "UTF-8")
 
-      def checkChar(c: Char) = (1 to 6).foreach { n =>
-        Stream.chunk(utf8Bytes(c.toString)).chunkLimit(n).flatMap(Stream.chunk).through(utf8Decode).toList shouldBe List(c.toString)
+      def checkChar(c: Char) = (1 to 6).foreach { n => {
+        val expected = Vector(c.toInt)
+        val actual = Stream.chunk(utf8Bytes(c.toString)).chunkLimit(n).flatMap(Stream.chunk).through(utf8Decode).toList.mkString.map(_.toInt) 
+        actual shouldBe expected
+        }
       }
-
+      
       def checkBytes(is: Int*) = (1 to 6).foreach { n =>
         val bytes = Chunk.bytes(is.map(_.toByte).toArray)
         Stream.chunk(bytes).chunkLimit(n).flatMap(Stream.chunk).through(utf8Decode).toList shouldBe List(utf8String(bytes))
       }
-
+      
       def checkBytes2(is: Int*) = {
         val bytes = Chunk.bytes(is.map(_.toByte).toArray)
         Stream(bytes).flatMap(Stream.chunk).through(utf8Decode).toList.mkString shouldBe utf8String(bytes)
       }
-
+    
       "all chars" in forAll { (c: Char) => checkChar(c) }
 
       "1 byte char" in checkBytes(0x24) // $
@@ -39,17 +42,18 @@ class TextSpec extends Fs2Spec {
 
       "preserve complete inputs" in forAll { (l0: List[String]) =>
         val l = l0.filter { _.nonEmpty }
-        Stream(l: _*).map(utf8Bytes).flatMap(Stream.chunk).through(utf8Decode).toList shouldBe l
-        Stream(l0: _*).map(utf8Bytes).through(utf8DecodeC).toList shouldBe l0
+        Stream(l: _*).map(utf8Bytes).flatMap(Stream.chunk).through(utf8Decode).toList.mkString shouldBe l.mkString
+        Stream(l0: _*).map(utf8Bytes).through(utf8DecodeC).toList.mkString shouldBe l0.mkString
       }
 
       "utf8Encode |> utf8Decode = id" in forAll { (s: String) =>
-        Stream(s).through(utf8EncodeC).through(utf8DecodeC).toList shouldBe List(s)
-        if (s.nonEmpty) Stream(s).through(utf8Encode).through(utf8Decode).toList shouldBe List(s)
+        //todo: Test if this also holds for non well-behaved strings with broken surrogate pairs
+        Stream(s).through(utf8EncodeC).through(utf8DecodeC).toList.mkString shouldBe s
+        Stream(s).through(utf8Encode).through(utf8Decode).toList.mkString shouldBe s
       }
 
       "1 byte sequences" in forAll { (s: String) =>
-        Stream.chunk(utf8Bytes(s)).chunkLimit(1).flatMap(Stream.chunk).through(utf8Decode).filter(_.nonEmpty).toList shouldBe s.grouped(1).toList
+        Stream.chunk(utf8Bytes(s)).chunkLimit(1).flatMap(Stream.chunk).through(utf8Decode).filter(_.nonEmpty).toList.mkString shouldBe s
       }
 
       "n byte sequences" in forAll { (s: String) =>
@@ -177,7 +181,7 @@ class TextSpec extends Fs2Spec {
         }
       }
 
-      "grouped in 3 characater chunks" in forAll { (lines0: PureStream[String]) =>
+      "grouped in 3 character chunks" in forAll { (lines0: PureStream[String]) =>
         val lines = lines0.get.map(escapeCrLf)
         val s = lines.intersperse("\r\n").toList.mkString.grouped(3).toList
         if (s.isEmpty) {
